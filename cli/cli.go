@@ -10,7 +10,7 @@ import (
 
 	"github.com/Masterminds/semver"
 	"github.com/fatih/color"
-	"github.com/urfave/cli"
+	cli "github.com/urfave/cli/v2"
 	"github.com/voidint/g/build"
 )
 
@@ -27,8 +27,11 @@ func Run() {
 	app.Name = "g"
 	app.Usage = "Golang Version Manager"
 	app.Version = build.Version()
-	app.Copyright = "Copyright (c) 2019-2020, voidint. All rights reserved."
-	app.Authors = []cli.Author{{Name: "voidint", Email: "voidint@126.com"}}
+	app.Copyright = "Copyright (c) 2019-2021, voidint. All rights reserved."
+	app.Authors = []*cli.Author{
+		{Name: "voidint\t", Email: "voidint@126.com"},
+		{Name: "mingcheng\t", Email: "mingcheng@outlook.com"},
+	}
 
 	app.Before = func(ctx *cli.Context) (err error) {
 		ghomeDir = ghome()
@@ -40,7 +43,17 @@ func Run() {
 		versionsDir = filepath.Join(ghomeDir, "versions")
 		return os.MkdirAll(versionsDir, 0755)
 	}
+
 	app.Commands = commands
+
+	app.Flags = []cli.Flag{
+		&cli.StringFlag{
+			Name:     build.FlagSock5Proxy,
+			Usage:    "Performing request using sock5 proxy, eg. `localhost:1080`",
+			Required: false,
+			EnvVars:  []string{"G_SOCKS5", "G_PROXY", "G_SOCK5_PROXY"},
+		},
+	}
 
 	if err := app.Run(os.Args); err != nil {
 		os.Exit(1)
@@ -50,36 +63,47 @@ func Run() {
 func init() {
 	cli.AppHelpTemplate = fmt.Sprintf(`NAME:
 	{{.Name}}{{if .Usage}} - {{.Usage}}{{end}}
- 
+
  USAGE:
 	{{if .UsageText}}{{.UsageText}}{{else}}{{.HelpName}} {{if .Commands}} command{{end}} {{if .ArgsUsage}}{{.ArgsUsage}}{{else}}[arguments...]{{end}}{{end}}{{if .Version}}{{if not .HideVersion}}
- 
+
  VERSION:
 	%s{{end}}{{end}}{{if .Description}}
- 
+
  DESCRIPTION:
 	{{.Description}}{{end}}{{if len .Authors}}
- 
+
  AUTHOR{{with $length := len .Authors}}{{if ne 1 $length}}S{{end}}{{end}}:
 	{{range $index, $author := .Authors}}{{if $index}}
 	{{end}}{{$author}}{{end}}{{end}}{{if .VisibleCommands}}
- 
+
  COMMANDS:{{range .VisibleCategories}}{{if .Name}}
- 
+
 	{{.Name}}:{{end}}{{range .VisibleCommands}}
 	  {{join .Names ", "}}{{"\t"}}{{.Usage}}{{end}}{{end}}{{end}}{{if .VisibleFlags}}
- 
+
  GLOBAL OPTIONS:
 	{{range $index, $option := .VisibleFlags}}{{if $index}}
 	{{end}}{{$option}}{{end}}{{end}}{{if .Copyright}}
- 
+
  COPYRIGHT:
 	{{.Copyright}}{{end}}
 `, build.ShortVersion)
 }
 
+const (
+	experimentalEnv = "G_EXPERIMENTAL"
+	homeEnv         = "G_HOME"
+	mirrorEnv       = "G_MIRROR"
+)
+
 // ghome 返回g根目录
 func ghome() (dir string) {
+	if experimental := os.Getenv(experimentalEnv); experimental == "true" {
+		if dir = os.Getenv(homeEnv); dir != "" {
+			return dir
+		}
+	}
 	homeDir, _ := os.UserHomeDir()
 	return filepath.Join(homeDir, ".g")
 }

@@ -10,6 +10,10 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
+
+	"github.com/k0kubun/go-ansi"
+	"github.com/schollz/progressbar/v3"
 )
 
 // ErrVersionNotFound 版本不存在
@@ -83,7 +87,7 @@ const (
 	InstallerKind = "Installer"
 )
 
-// Download 下载版本另存为指定文件并校验sha256哈希值
+// Download 下载版本另存为指定文件
 func (pkg *Package) Download(dst string) (size int64, err error) {
 	resp, err := http.Get(pkg.URL)
 	if err != nil {
@@ -92,12 +96,49 @@ func (pkg *Package) Download(dst string) (size int64, err error) {
 	defer resp.Body.Close()
 	f, err := os.Create(dst)
 	if err != nil {
-		return 0, err
+		return 0, NewDownloadError(pkg.URL, err)
 	}
 	defer f.Close()
 	size, err = io.Copy(f, resp.Body)
 	if err != nil {
 		return 0, NewDownloadError(pkg.URL, err)
+	}
+	return size, nil
+}
+
+// DownloadWithProgress 下载版本另存为指定文件且显示下载进度
+func (pkg *Package) DownloadWithProgress(dst string) (size int64, err error) {
+	resp, err := http.Get(pkg.URL)
+	if err != nil {
+		return 0, NewDownloadError(pkg.URL, err)
+	}
+	defer resp.Body.Close()
+
+	f, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return 0, NewDownloadError(pkg.URL, err)
+	}
+	defer f.Close()
+
+	bar := progressbar.NewOptions64(
+		resp.ContentLength,
+		progressbar.OptionSetWidth(15),
+		progressbar.OptionSetDescription("Downloading"),
+		progressbar.OptionSetWriter(ansi.NewAnsiStdout()),
+		progressbar.OptionShowBytes(true),
+		progressbar.OptionThrottle(65*time.Millisecond),
+		progressbar.OptionShowCount(),
+		progressbar.OptionOnCompletion(func() {
+			fmt.Fprint(ansi.NewAnsiStdout(), "\n")
+		}),
+		// progressbar.OptionSpinnerType(35),
+		// progressbar.OptionFullWidth(),
+	)
+	bar.RenderBlank()
+
+	size, err = io.Copy(io.MultiWriter(f, bar), resp.Body)
+	if err != nil {
+		return size, NewDownloadError(pkg.URL, err)
 	}
 	return size, nil
 }

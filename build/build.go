@@ -4,7 +4,11 @@ import "strings"
 
 const (
 	// ShortVersion 短版本号
-	ShortVersion = "1.1.2"
+	ShortVersion = "1.2.0"
+)
+
+const (
+	FlagSock5Proxy = "sock5-proxy"
 )
 
 // The value of variables come form `gb build -ldflags '-X "build.Build=xxxxx" -X "build.CommitID=xxxx"' `

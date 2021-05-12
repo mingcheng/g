@@ -2,10 +2,15 @@ package version
 
 import (
 	"fmt"
+	"log"
 	"net/http"
+	stdurl "net/url"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/urfave/cli/v2"
+	"github.com/voidint/g/build"
+	"golang.org/x/net/proxy"
 )
 
 const (
@@ -38,15 +43,25 @@ func (e *URLUnreachableError) Error() string {
 
 // Collector go版本信息采集器
 type Collector struct {
-	url string
-	doc *goquery.Document
+	url        string
+	sock5Proxy string
+	pURL       *stdurl.URL
+	doc        *goquery.Document
 }
 
 // NewCollector 返回采集器实例
-func NewCollector(url string) (*Collector, error) {
-	c := Collector{
-		url: url,
+func NewCollector(ctx *cli.Context, url string) (*Collector, error) {
+	pURL, err := stdurl.Parse(url)
+	if err != nil {
+		return nil, err
 	}
+
+	c := Collector{
+		url:        url,
+		pURL:       pURL,
+		sock5Proxy: ctx.String(build.FlagSock5Proxy),
+	}
+
 	if err := c.loadDocument(); err != nil {
 		return nil, err
 	}
@@ -54,7 +69,33 @@ func NewCollector(url string) (*Collector, error) {
 }
 
 func (c *Collector) loadDocument() (err error) {
-	resp, err := http.Get(c.url)
+	// setup a http client
+	httpTransport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+	}
+	httpClient := &http.Client{
+		Transport: httpTransport,
+	}
+
+	// create a socks5 dialer
+	if c.sock5Proxy != "" {
+		dialer, err := proxy.SOCKS5("tcp", c.sock5Proxy, nil, proxy.Direct)
+		if err != nil {
+			return NewURLUnreachableError(c.url, err)
+		}
+
+		// set our socks5 as the dialer
+		if contextDialer, ok := dialer.(proxy.ContextDialer); ok {
+			log.Printf("Performing using socks5 proxy `%s`\n", c.sock5Proxy)
+			httpTransport.DialContext = contextDialer.DialContext
+		} else {
+			return fmt.Errorf("%s get context dialer error", c.sock5Proxy)
+		}
+	}
+
+	// do requests
+	resp, err := httpClient.Get(c.url)
+
 	if err != nil {
 		return NewURLUnreachableError(c.url, err)
 	}
@@ -71,9 +112,13 @@ func (c *Collector) findPackages(table *goquery.Selection) (pkgs []*Package) {
 
 	table.Find("tr").Not(".first").Each(func(j int, tr *goquery.Selection) {
 		td := tr.Find("td")
+		href := td.Eq(0).Find("a").AttrOr("href", "")
+		if strings.HasPrefix(href, "/") { // relative paths
+			href = fmt.Sprintf("%s://%s%s", c.pURL.Scheme, c.pURL.Host, href)
+		}
 		pkgs = append(pkgs, &Package{
 			FileName:  td.Eq(0).Find("a").Text(),
-			URL:       td.Eq(0).Find("a").AttrOr("href", ""),
+			URL:       href,
 			Kind:      td.Eq(1).Text(),
 			OS:        td.Eq(2).Text(),
 			Arch:      td.Eq(3).Text(),
